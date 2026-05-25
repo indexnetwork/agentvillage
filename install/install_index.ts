@@ -1,25 +1,20 @@
 /**
- * Index Network backend installer.
+ * Index Network backend installer for Hermes.
  *
- * Wires the Index Network protocol into OpenClaw:
- *
- *   - Writes `mcp.servers.index` to the protocol URL with the user's API key.
- *   - Installs the morning-digest cron (08:00 host-local). The afternoon
- *     (14:00) and evening (20:00) ambient passes are opt-in via the schedule
- *     sub-dialog in `workspace/SCHEDULE.md`. Each pass is selective — max 3
- *     direct + 3 introducer opportunities per dispatch, quality-gated.
- *
- * Invoked only by the orchestrator (`install.ts`) — not a standalone
- * entrypoint. Reads `--index-api-key <value>` and `--dev` from
- * `process.argv` and `INDEX_MCP_URL` from env for the MCP URL override.
+ *   - Merges `mcp_servers.index` into `$HERMES_HOME/config.yaml`
+ *   - Writes `INDEX_API_KEY` to `$HERMES_HOME/.env`
+ *   - Installs the morning digest cron (`Edge — daily digest`, 08:00 host-local)
  */
 
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { execSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import YAML from "yaml";
 
 import { readFlag } from "./args";
+import { upsertEnvVar } from "./env";
+import { hermesBin, hermesExecEnv } from "./hermes_cli";
+import { CRON_NAME_PREFIX, hermesHome } from "./paths";
 
 const PROD_MCP_URL = "https://protocol.index.network/mcp";
 const DEV_MCP_URL = "https://protocol.dev.index.network/mcp";
@@ -29,9 +24,9 @@ const PROTOCOL_MCP_URL =
   process.env.INDEX_MCP_URL?.trim() || (IS_DEV ? DEV_MCP_URL : PROD_MCP_URL);
 
 function readApiKey(): string {
-  const key = readFlag("--index-api-key")?.trim();
+  const key = readFlag("--index-api-key")?.trim() || process.env.INDEX_API_KEY?.trim();
   if (!key) {
-    console.error("error: --index-api-key required");
+    console.error("error: --index-api-key required (or set INDEX_API_KEY)");
     console.error("usage: bun install/install.ts --index-api-key <KEY> [--dev]");
     process.exit(1);
   }
@@ -39,77 +34,93 @@ function readApiKey(): string {
 }
 
 function writeMcpServerEntry(apiKey: string): void {
-  const mcpEntry = JSON.stringify({
+  const configPath = join(hermesHome(), "config.yaml");
+  let doc: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    doc = YAML.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+  }
+  const mcpServers = { ...((doc.mcp_servers as Record<string, unknown>) ?? {}) };
+  mcpServers.index = {
     url: PROTOCOL_MCP_URL,
-    transport: "streamable-http",
     headers: {
       "x-api-key": apiKey,
       "x-index-surface": "telegram",
     },
-  });
-  console.log("→ writing mcp.servers.index");
-  execSync(`openclaw config set mcp.servers.index '${mcpEntry}' --strict-json`, {
-    stdio: ["ignore", "ignore", "inherit"],
-  });
+  };
+  doc.mcp_servers = mcpServers;
+  writeFileSync(configPath, YAML.stringify(doc));
+  console.log("→ wrote mcp_servers.index in config.yaml");
 }
 
-function installCronJobs(): void {
-  const npmBin = `${process.env.HOME}/.npm/bin`;
-  const localBin = `${process.env.HOME}/.local/bin`;
-  const env = { ...process.env, PATH: `${npmBin}:${localBin}:${process.env.PATH}` };
-  const workspaceDir = join(homedir(), ".openclaw", "workspace");
+function removeEdgeCronJobs(env: NodeJS.ProcessEnv): void {
+  const jobsPath = join(hermesHome(), "cron", "jobs.json");
+  if (!existsSync(jobsPath)) return;
 
-  // Remove existing EdgeClaw cron jobs before re-adding to stay idempotent.
+  let parsed: { jobs?: Array<{ id: string; name: string }> };
   try {
-    const raw = execFileSync("openclaw", ["cron", "list", "--json"], { encoding: "utf8", env });
-    const parsed = JSON.parse(raw) as { jobs?: Array<{ id: string; name: string }> };
-    for (const job of parsed.jobs ?? []) {
-      if (job.name.startsWith("EdgeClaw")) {
-        execFileSync("openclaw", ["cron", "remove", job.id], { stdio: "ignore", env });
-      }
-    }
+    parsed = JSON.parse(readFileSync(jobsPath, "utf8"));
   } catch {
-    // Gateway may be mid-restart; proceed and let cron add handle any conflicts.
+    return;
   }
 
-  console.log("→ installing cron jobs");
+  const bin = hermesBin();
+  for (const job of parsed.jobs ?? []) {
+    if (!job.name.startsWith(CRON_NAME_PREFIX)) continue;
+    try {
+      execFileSync(bin, ["cron", "remove", job.id], { stdio: "ignore", env });
+      console.log(`→ removed cron ${job.name}`);
+    } catch {
+      console.warn(`  warning: could not remove cron ${job.name}`);
+    }
+  }
+}
 
-  // `--no-deliver` disables the runner's announce fallback. The agent must use
-  // the `message` tool to deliver visible content; anything the agent says as
-  // its final assistant text stays internal. This eliminates the entire class
-  // of NO_REPLY-token-leak bugs (textNO_REPLY, JSON envelopes, partial tokens)
-  // because there is no fallback channel for malformed silent tokens to bypass.
-  // The `--channel`/`--to` binding still resolves the `message` tool's target
-  // and is patched in by the orchestrator's `bindCronsToTelegram` once a
-  // Telegram session exists.
-  //
-  // Default install adds only the morning digest. The afternoon and evening
-  // ambient passes are opt-in — the user enables them through the schedule
-  // sub-dialog (`workspace/SCHEDULE.md`), which calls `openclaw cron add`
-  // with the same shape against the prompts in `skills/index-network/prompts/`.
-  //
-  // The message body is read in Node and passed as a literal argv element via
-  // `execFileSync` (array form). The shell never sees the value, so anything
-  // inside the prompt (backticks, $vars, quotes, semicolons) passes through
-  // unmolested — no escaping, no command-substitution surprises.
-  const digestMessage = readFileSync(
-    join(workspaceDir, "skills/index-network/prompts/digest.md"),
-    "utf8",
-  );
-  execFileSync(
-    "openclaw",
-    [
-      "cron", "add",
-      "--name", "EdgeClaw — daily digest",
-      "--cron", "0 8 * * *",
-      "--session", "isolated",
-      "--light-context",
-      "--no-deliver",
-      "--channel", "last",
-      "--message", digestMessage,
-    ],
-    { stdio: ["ignore", "ignore", "inherit"], env },
-  );
+function installCronJobs(env: NodeJS.ProcessEnv): void {
+  const home = hermesHome();
+  const digestPath = join(home, "skills/index-network/prompts/digest.md");
+  if (!existsSync(digestPath)) {
+    console.error(`error: digest prompt missing at ${digestPath} — run install.ts first`);
+    process.exit(1);
+  }
+
+  removeEdgeCronJobs(env);
+
+  const digestMessage = readFileSync(digestPath, "utf8");
+  console.log("→ installing morning digest cron");
+
+  const deliver = process.env.TELEGRAM_HOME_CHANNEL?.trim() ? "telegram" : "origin";
+  if (deliver === "origin") {
+    console.log(
+      "  note: TELEGRAM_HOME_CHANNEL not set — cron uses --deliver origin; set it in .env for telegram delivery",
+    );
+  }
+
+  const bin = hermesBin();
+  if (bin === "hermes") {
+    console.warn("  warning: hermes CLI not found — skipping digest cron");
+    return;
+  }
+
+  try {
+    execFileSync(
+      bin,
+      [
+        "cron",
+        "create",
+        "0 8 * * *",
+        digestMessage,
+        "--name",
+        "Edge — daily digest",
+        "--deliver",
+        deliver,
+        "--workdir",
+        home,
+      ],
+      { stdio: ["ignore", "ignore", "inherit"], env: hermesExecEnv() },
+    );
+  } catch {
+    console.warn("  warning: could not install digest cron — gateway may still run");
+  }
 }
 
 export function installIndex(): void {
@@ -117,6 +128,8 @@ export function installIndex(): void {
   console.log(
     `→ index network: target=${IS_DEV ? "dev" : "production"} (${PROTOCOL_MCP_URL})`,
   );
+  upsertEnvVar("INDEX_API_KEY", apiKey);
   writeMcpServerEntry(apiKey);
-  installCronJobs();
+
+  installCronJobs(hermesExecEnv());
 }

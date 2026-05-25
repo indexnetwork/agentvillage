@@ -1,52 +1,20 @@
 #!/usr/bin/env bun
 /**
- * EdgeClaw installer (orchestrator).
+ * Edge Hermes installer (orchestrator).
  *
- * Pre-stages the EdgeClaw workspace and runs each backend installer. Today
- * only Index Network is wired up; EdgeOS and Geo are placeholders that
- * future contributors fill in.
+ * Installs into Hermes defaults (flat under `$HERMES_HOME`):
  *
- * EdgeClaw-wide steps in this script:
+ *   - `SOUL.md` → `$HERMES_HOME/SOUL.md` (identity; overwrites generic Hermes soul)
+ *   - `AGENTS.md`, `SCHEDULE.md`, `USER.md` → `$HERMES_HOME/`
+ *   - Edge skill bundles → `$HERMES_HOME/skills/{index-network,edgeos,edge-esmeralda}/`
+ *   - `terminal.cwd` in config.yaml → `$HERMES_HOME`
+ *   - Index MCP + morning digest cron (`install_index.ts`)
  *
- *   - Verify `openclaw` is available on PATH.
- *   - Disable Telegram progress-draft "tidepooling" so the streaming-off
- *     setting is loaded on the very first gateway start (not deferred until
- *     the first bootstrap turn drains).
- *   - Copy every markdown file under `workspace/` into
- *     `~/.openclaw/workspace/`.
- *   - Copy backend skill bundles from `skills/` into
- *     `~/.openclaw/workspace/skills/` so OpenClaw registers them as
- *     workspace skills.
- *   - Call each backend installer in `install_<backend>.ts`.
- *   - Bind any `EdgeClaw — *` cron jobs to the user's Telegram chat once a
- *     session exists, so digest / ambient deliveries route correctly.
- *   - Restart the gateway so all config changes and cron jobs take effect.
- *
- * Anything the agent should *do at runtime* (greet the user, create their
- * profile, send the welcome message body) stays in
- * skills/index-network/bootstrap.md / skills/index-network/prompts/welcome.md —
- * the installer does not impersonate the agent.
- *
- * Re-running the installer is the supported way to bind cron deliveries to
- * the user's Telegram chat once they've sent their first message. By
- * default, `USER.md` is preserved on re-install — it holds the user's
- * lived notes populated by the active skill's bootstrap ritual, and
- * overwriting it with the blank template would silently erase those notes.
- * Pass `--wipe-user` to overwrite `USER.md` and delete the agent-curated
- * `MEMORY.md` so the next session re-onboards from scratch. (Mirrors
- * `reset.ts --wipe-user`.)
- *
- * Usage (run from the repo root):
+ * Usage (from repo root):
  *   bun install/install.ts --index-api-key <KEY>
  *   bun install/install.ts --index-api-key <KEY> --dev
  *   bun install/install.ts --index-api-key <KEY> --wipe-user
- *
- * Optional EdgeOS tokens (consumed by install_edgeos.ts and written into
- * `env.vars.*` so the agent's curl/HTTP recipes can read them):
- *   bun install/install.ts \
- *     --index-api-key <KEY> \
- *     --edgeos-api-key eos_live_... \
- *     --edgeos-bearer-token <jwt>
+ *   bun install/install.ts --index-api-key <KEY> --no-restart   # containers (gateway starts after)
  */
 
 import {
@@ -54,11 +22,9 @@ import {
   mkdirSync,
   copyFileSync,
   readdirSync,
-  readFileSync,
   rmSync,
   statSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
@@ -66,28 +32,46 @@ import { execSync } from "node:child_process";
 import { installIndex } from "./install_index";
 import { installEdgeos } from "./install_edgeos";
 import { installGeo } from "./install_geo";
+import { setTerminalCwd } from "./config";
+import { hermesBin, hermesExecEnv } from "./hermes_cli";
+import {
+  EDGE_SKILL_NAMES,
+  hermesHome,
+  skillsDir,
+  targetWorkspace,
+} from "./paths";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const SOURCE_WORKSPACE = join(SCRIPT_DIR, "../workspace");
 const SOURCE_SKILLS = join(SCRIPT_DIR, "../skills");
-const TARGET_WORKSPACE = join(homedir(), ".openclaw", "workspace");
-const TARGET_SKILLS = join(TARGET_WORKSPACE, "skills");
+const TARGET_HOME = targetWorkspace();
 
-function ensureOpenclawAvailable(): void {
+function ensureHermesAvailable(): void {
+  if (process.argv.includes("--no-restart")) return;
+
+  const bin = hermesBin();
   try {
-    execSync("openclaw --version", { stdio: "ignore" });
+    execSync(`"${bin}" --version`, { stdio: "ignore", env: hermesExecEnv() });
   } catch {
-    console.error("error: `openclaw` CLI not found on PATH");
-    console.error("       install OpenClaw first: https://openclaw.dev");
+    console.error("error: `hermes` CLI not found on PATH");
+    console.error("       install Hermes first: https://github.com/NousResearch/hermes-agent");
     process.exit(1);
   }
 }
 
-function disableTelegramTidepooling(): void {
-  console.log("→ disabling telegram progress-draft tidepooling");
-  execSync("openclaw config set channels.telegram.streaming.mode off", {
-    stdio: ["ignore", "ignore", "inherit"],
-  });
+function removeLegacyWorkspaceEdge(): void {
+  const legacy = join(hermesHome(), "workspace", "edge");
+  if (!existsSync(legacy)) return;
+  rmSync(legacy, { recursive: true, force: true });
+  console.log(`→ removed legacy ${legacy}`);
+}
+
+function copySoulFile(): void {
+  const sourceSoul = join(SOURCE_WORKSPACE, "SOUL.md");
+  const targetSoul = join(hermesHome(), "SOUL.md");
+  if (!existsSync(sourceSoul)) return;
+  copyFileSync(sourceSoul, targetSoul);
+  console.log(`→ wrote SOUL.md to ${targetSoul}`);
 }
 
 function copyWorkspaceFiles(wipeUser: boolean): void {
@@ -96,80 +80,48 @@ function copyWorkspaceFiles(wipeUser: boolean): void {
     process.exit(1);
   }
 
-  if (!existsSync(TARGET_WORKSPACE)) {
-    mkdirSync(TARGET_WORKSPACE, { recursive: true });
-  }
-
   let copied = 0;
   let preservedUserNotes = false;
   for (const entry of readdirSync(SOURCE_WORKSPACE)) {
+    if (entry === "SOUL.md") continue;
+
     const sourcePath = join(SOURCE_WORKSPACE, entry);
-    const targetPath = join(TARGET_WORKSPACE, entry);
+    const targetPath = join(TARGET_HOME, entry);
     const stat = statSync(sourcePath);
 
-    if (stat.isDirectory()) {
-      if (!existsSync(targetPath)) mkdirSync(targetPath, { recursive: true });
-      for (const inner of readdirSync(sourcePath)) {
-        if (!inner.endsWith(".md")) continue;
-        copyFileSync(join(sourcePath, inner), join(targetPath, inner));
-        copied++;
-      }
-    } else if (entry.endsWith(".md")) {
-      // USER.md holds the user's lived notes — populated by whichever
-      // active skill's bootstrap ritual ran during onboarding. Re-running
-      // the installer (to bind cron deliveries) must not erase those notes
-      // — preserve unless --wipe-user is set. Mirrors reset.ts.
-      if (entry === "USER.md" && !wipeUser && existsSync(targetPath)) {
-        preservedUserNotes = true;
-        continue;
-      }
-      copyFileSync(sourcePath, targetPath);
-      copied++;
+    if (stat.isDirectory()) continue;
+
+    if (!entry.endsWith(".md")) continue;
+
+    if (entry === "USER.md" && !wipeUser && existsSync(targetPath)) {
+      preservedUserNotes = true;
+      continue;
     }
+    copyFileSync(sourcePath, targetPath);
+    copied++;
   }
 
-  console.log(`→ staged ${copied} workspace files into ${TARGET_WORKSPACE}`);
+  console.log(`→ staged ${copied} project files into ${TARGET_HOME}`);
   if (preservedUserNotes) {
     console.log("  (USER.md preserved — pass --wipe-user to overwrite it)");
   }
 
-  // MEMORY.md is agent-curated at runtime (not shipped in source), so it can't
-  // be "reset to template" like USER.md — it's deleted instead. Without this,
-  // the agent's long-term memories survive `--wipe-user` and keep biasing the
-  // re-onboarding session toward the prior user identity.
-  //
-  // workspace-state.json holds OpenClaw's `bootstrapSeededAt` /
-  // `setupCompletedAt` markers — its presence is what OpenClaw uses to skip
-  // BOOTSTRAP.md injection on subsequent sessions. Deleting it makes OpenClaw
-  // treat the workspace as fresh on the next session, so BOOTSTRAP.md (which
-  // we re-staged above) is injected into the prompt and the onboarding ritual
-  // re-runs.
-  //
-  // memory/edgeclaw-state.json is EdgeClaw's own onboarding marker (separate
-  // from Index Network's server-side `onboardingComplete` flag). Wiping it
-  // makes the next session re-enter EdgeClaw onboarding from BOOTSTRAP.md.
-  // memory/welcome-state.json is the Index-side welcome-message dedup marker;
-  // re-onboarding should re-deliver the welcome, so it goes too. cron-prefs
-  // are reset because they are set as part of EdgeClaw onboarding.
   if (wipeUser) {
     const filesToWipe = [
-      join(TARGET_WORKSPACE, "MEMORY.md"),
-      join(TARGET_WORKSPACE, ".openclaw", "workspace-state.json"),
-      join(TARGET_WORKSPACE, "memory", "edgeclaw-state.json"),
-      join(TARGET_WORKSPACE, "memory", "welcome-state.json"),
-      join(TARGET_WORKSPACE, "memory", "cron-preferences.json"),
+      join(TARGET_HOME, "MEMORY.md"),
+      join(TARGET_HOME, "memory", "edge-state.json"),
+      join(TARGET_HOME, "memory", "welcome-state.json"),
     ];
     for (const path of filesToWipe) {
       if (existsSync(path)) {
         rmSync(path, { force: true });
-        console.log(`→ removed ${path.replace(TARGET_WORKSPACE + "/", "")} (--wipe-user)`);
+        console.log(`→ removed ${path.replace(TARGET_HOME + "/", "")} (--wipe-user)`);
       }
     }
   }
 }
 
-function copyMarkdownTree(sourceDir: string, targetDir: string): number {
-  if (!existsSync(sourceDir)) return 0;
+function copyTree(sourceDir: string, targetDir: string): number {
   if (!existsSync(targetDir)) mkdirSync(targetDir, { recursive: true });
 
   let copied = 0;
@@ -179,8 +131,8 @@ function copyMarkdownTree(sourceDir: string, targetDir: string): number {
     const stat = statSync(sourcePath);
 
     if (stat.isDirectory()) {
-      copied += copyMarkdownTree(sourcePath, targetPath);
-    } else if (entry.endsWith(".md")) {
+      copied += copyTree(sourcePath, targetPath);
+    } else {
       copyFileSync(sourcePath, targetPath);
       copied++;
     }
@@ -189,130 +141,62 @@ function copyMarkdownTree(sourceDir: string, targetDir: string): number {
 }
 
 function copySkillFiles(): void {
-  const copied = copyMarkdownTree(SOURCE_SKILLS, TARGET_SKILLS);
+  const targetSkillsRoot = skillsDir();
+  if (!existsSync(targetSkillsRoot)) mkdirSync(targetSkillsRoot, { recursive: true });
+
+  let copied = 0;
+  for (const name of EDGE_SKILL_NAMES) {
+    const sourcePath = join(SOURCE_SKILLS, name);
+    if (!existsSync(sourcePath)) continue;
+    copied += copyTree(sourcePath, join(targetSkillsRoot, name));
+  }
+
   if (copied > 0) {
-    console.log(`→ staged ${copied} skill files into ${TARGET_SKILLS}`);
-  }
-}
-
-/**
- * Reads `~/.openclaw/agents/main/sessions/sessions.json` and returns the
- * most-recently-updated Telegram-bound session, or `null` if the user has
- * not yet messaged the agent on Telegram. Used to bind cron deliveries to
- * the user's actual chat instead of `--channel last`, which fails for cron
- * jobs because they run in fresh isolated sessions with no `lastTo`.
- */
-function findTelegramSession(): { sessionKey: string; to: string } | null {
-  const sessionsPath = join(
-    homedir(),
-    ".openclaw",
-    "agents",
-    "main",
-    "sessions",
-    "sessions.json",
-  );
-  if (!existsSync(sessionsPath)) return null;
-  let map: Record<
-    string,
-    {
-      origin?: { provider?: string; to?: string };
-      lastChannel?: string;
-      lastTo?: string;
-      updatedAt?: number;
-    }
-  >;
-  try {
-    map = JSON.parse(readFileSync(sessionsPath, "utf-8"));
-  } catch {
-    return null;
-  }
-  // Telegram bot delivery needs a numeric chatId — `telegram:<digits>`.
-  // Reject sessions whose `to` is the username form (`telegram:@handle`),
-  // a group placeholder (`telegram:@telegram`), or has no concrete `lastTo`.
-  // OpenClaw can register multiple Telegram sessions per peer (one per
-  // surface form); without this filter the most-recent entry can be a
-  // username-shaped session that never resolves to a real Bot API chat.
-  const TELEGRAM_NUMERIC = /^telegram:-?\d+$/;
-  const candidates = Object.entries(map)
-    .filter(([key, val]) => {
-      if (!key.startsWith("agent:main:telegram:direct:")) return false;
-      const to = val.lastTo ?? val.origin?.to ?? "";
-      return TELEGRAM_NUMERIC.test(to);
-    })
-    .sort(([, a], [, b]) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  const top = candidates[0];
-  if (!top) return null;
-  const to = top[1].lastTo ?? top[1].origin?.to ?? "";
-  return { sessionKey: top[0], to };
-}
-
-function bindCronsToTelegram(
-  session: { sessionKey: string; to: string },
-  env: NodeJS.ProcessEnv,
-): void {
-  console.log(`→ binding crons to ${session.to}`);
-  let raw: string;
-  try {
-    raw = execSync("openclaw cron list --json", { encoding: "utf8", env });
-  } catch {
-    console.warn("  warning: could not list crons to bind delivery");
-    return;
-  }
-  const parsed = JSON.parse(raw) as { jobs?: Array<{ id: string; name: string }> };
-  for (const job of parsed.jobs ?? []) {
-    if (!job.name.startsWith("EdgeClaw")) continue;
-    execSync(
-      `openclaw cron edit ${job.id} --session-key ${session.sessionKey} --channel telegram --to ${session.to}`,
-      { stdio: ["ignore", "ignore", "inherit"], env },
-    );
+    console.log(`→ staged ${copied} files into ${targetSkillsRoot}/{${EDGE_SKILL_NAMES.join(",")}}`);
   }
 }
 
 function restartGateway(): void {
   console.log("→ restarting gateway");
   try {
-    execSync("openclaw gateway restart", { stdio: ["ignore", "ignore", "inherit"] });
+    const bin = hermesBin();
+    execSync(`"${bin}" gateway restart`, {
+      stdio: ["ignore", "ignore", "inherit"],
+      env: hermesExecEnv(),
+    });
   } catch {
-    console.warn("  warning: could not restart gateway — run manually: openclaw gateway restart");
+    console.warn("  warning: could not restart gateway — run manually: hermes gateway restart");
   }
 }
 
 function main(): void {
-  ensureOpenclawAvailable();
+  ensureHermesAvailable();
 
   const wipeUser = process.argv.includes("--wipe-user");
 
-  console.log("EdgeClaw installer");
-  console.log("==================");
+  console.log("Edge Hermes installer");
+  console.log("===================");
   console.log("");
 
-  disableTelegramTidepooling();
+  removeLegacyWorkspaceEdge();
+  copySoulFile();
   copyWorkspaceFiles(wipeUser);
   copySkillFiles();
+  setTerminalCwd();
 
   installIndex();
   installEdgeos();
   installGeo();
 
-  const npmBin = `${process.env.HOME}/.npm/bin`;
-  const localBin = `${process.env.HOME}/.local/bin`;
-  const env = { ...process.env, PATH: `${npmBin}:${localBin}:${process.env.PATH}` };
-  const session = findTelegramSession();
-  if (session) {
-    bindCronsToTelegram(session, env);
+  if (!process.argv.includes("--no-restart")) {
+    restartGateway();
   }
-  restartGateway();
 
   console.log("");
   console.log("✓ installed");
+  console.log(`  HERMES_HOME: ${TARGET_HOME}`);
   console.log("");
-  if (session) {
-    console.log("crons are bound to your Telegram chat — digest, ambient passes will deliver.");
-  } else {
-    console.log("next:");
-    console.log("  1. send any message to your agent on Telegram");
-    console.log("  2. re-run `bun install/install.ts --index-api-key <key>` to bind cron deliveries to that chat");
-  }
+  console.log("next: message your Telegram bot — gateway uses terminal.cwd above");
 }
 
 main();

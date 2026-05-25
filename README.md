@@ -1,12 +1,12 @@
-# EdgeClaw
+# AgentVillage
 
 The Agent Village experience for **Edge Esmeralda 2026** (May 30 – Jun 27, Healdsburg, CA).
 
-EdgeClaw is the public skills package and onboarding scripts that an OpenClaw agent (whether running via InstaClaw or self-hosted) loads to participate in the Edge Esmeralda Agent Village. It's a multi-backend package: ambient discovery and intent negotiation through Index Network, knowledge graph through Geo, calendar and directory through EdgeOS. EdgeClaw defines what an agent knows, how it authenticates with each backend, and how it interacts with attendees.
+AgentVillage is the public skills package and onboarding scripts that an OpenClaw agent (whether running via InstaClaw or self-hosted) loads to participate in the Edge Esmeralda Agent Village. It's a multi-backend package: ambient discovery and intent negotiation through Index Network, knowledge graph through Geo, calendar and directory through EdgeOS. AgentVillage defines what an agent knows, how it authenticates with each backend, and how it interacts with attendees.
 
 ## What you get
 
-Today, capabilities come from **Index Network** (ambient discovery + intent negotiation). **Geo** (knowledge graph) and **EdgeOS** (calendar + directory) are also in scope. Once installed, EdgeClaw:
+Today, capabilities come from **Index Network** (ambient discovery + intent negotiation). **Geo** (knowledge graph) and **EdgeOS** (calendar + directory) are also in scope. Once installed, AgentVillage:
 
 - **Runs onboarding** the first time you message it (greet → profile lookup → community discovery → first signal → `complete_onboarding` → silent capture of your platform handle).
 - **Sends a morning digest at 08:00 host-local time** with the connections worth your attention and the asks where you can help.
@@ -14,35 +14,35 @@ Today, capabilities come from **Index Network** (ambient discovery + intent nego
 - **Notifies you when someone accepts** a connection on your behalf.
 - **Curates memory** every few days — distills daily notes into long-term `MEMORY.md`.
 
-EdgeClaw never names the plumbing in chat. You see EdgeClaw and (when relevant) your community.
+AgentVillage never names the plumbing in chat. You see AgentVillage and (when relevant) your community.
 
 ## Architecture
 
-EdgeClaw plugs into the EdgeOS portal (the identity + spine), with InstaClaw as the recommended runtime for non-technical attendees. Backends the agent calls: Geo (knowledge graph), Index (negotiation + ambient discovery), and EdgeOS APIs (calendar, directory).
+AgentVillage plugs into the EdgeOS portal (the identity + spine), with InstaClaw as the recommended runtime for non-technical attendees. Backends the agent calls: Geo (knowledge graph), Index (negotiation + ambient discovery), and EdgeOS APIs (calendar, directory).
 
 See the project hub for the full diagram and decisions.
 
 ## What's here
 
-- `workspace/IDENTITY.md` — what an EdgeClaw agent knows about itself and the village
+- `workspace/IDENTITY.md` — what an AgentVillage agent knows about itself and the village
 - `workspace/` — backend-agnostic agent core (identity, voice, community context, generic operating rules)
-- `skills/` — per-backend skill bundles registered with OpenClaw via per-bundle `SKILL.md`. Mirrors `Edge-City/edgeclaw-skills` as a subtree; today this hosts:
+- `skills/` — per-backend skill bundles registered with OpenClaw via per-bundle `SKILL.md`. Mirrors `Edge-City/agentvillage-skills` as a subtree; today this hosts:
   - `skills/index-network/` — Index Network MCP procedural knowledge (onboarding ritual, voice exemplars, cron prompts, heartbeat tasks)
   - `skills/edgeos/` — backend-generic EdgeOS API recipes (events, RSVPs, venues, attendee directory, own profile). Reads `EDGEOS_BEARER_TOKEN` and `EDGEOS_API_KEY` from env; popup id is supplied by the active operator skill.
-  - `skills/edge-esmeralda/` — Edge Esmeralda 2026 popup knowledge: popup constants (popup id, week dates, themes), attendee field semantics, the curated wiki/website/newsletter references (vendored from `Edge-City/edgeclaw-skills`; refreshed by upstream CI every 15 min), and the onboarding pointer for obtaining EdgeOS tokens.
-- `install/` — bootstrap scripts for plugging EdgeClaw into a runtime
+  - `skills/edge-esmeralda/` — Edge Esmeralda 2026 popup knowledge: popup constants (popup id, week dates, themes), attendee field semantics, the curated wiki/website/newsletter references (vendored from `Edge-City/agentvillage-skills`; refreshed by upstream CI every 15 min), and the onboarding pointer for obtaining EdgeOS tokens.
+- `install/` — bootstrap scripts for plugging AgentVillage into a runtime
 
 ## Getting an agent connected
 
 Two paths:
 
-**1. I'm new to agents.** Sign up at `edgecity.live/agentvillage` and pick "Set one up for me." InstaClaw provisions a hosted agent with EdgeClaw preinstalled. ~5 minutes.
+**1. I'm new to agents.** Sign up at `edgecity.live/agentvillage` and pick "Set one up for me." InstaClaw provisions a hosted agent with AgentVillage preinstalled. ~5 minutes.
 
-**2. I'm self-hosting OpenClaw.** Set up a clean OpenClaw installation, then run the EdgeClaw installer from a clone of this repo.
+**2. I'm self-hosting OpenClaw.** Set up a clean OpenClaw installation, then run the AgentVillage installer from a clone of this repo.
 
 ### EdgeOS tokens
 
-Both paths need EdgeOS tokens (`EDGEOS_BEARER_TOKEN` and `EDGEOS_API_KEY`) before the `edgeos` skill can talk to the calendar, directory, or your own profile. Obtain them by completing the email-OTP flow at `<EDGECITY-ONBOARDING-URL>`, then pass them to the installer (`--edgeos-bearer-token`, `--edgeos-api-key`) or, for non-OpenClaw hosts, set them in your host's env config per its conventions. EdgeClaw does not run OTP itself.
+Both paths need EdgeOS tokens (`EDGEOS_BEARER_TOKEN` and `EDGEOS_API_KEY`) before the `edgeos` skill can talk to the calendar, directory, or your own profile. Obtain them by completing the email-OTP flow at `<EDGECITY-ONBOARDING-URL>`, then pass them to the installer (`--edgeos-bearer-token`, `--edgeos-api-key`) or, for non-OpenClaw hosts, set them in your host's env config per its conventions. AgentVillage does not run OTP itself.
 
 > **TODO:** Replace `<EDGECITY-ONBOARDING-URL>` with the actual URL once EdgeCity publishes it. Bump `package.json` patch version when done.
 
@@ -129,7 +129,7 @@ Every call with the same email returns the same user but a **fresh API key** —
 
 ### What InstaClaw does after signup
 
-1. Runs the EdgeClaw installer with the returned `apiKey`: `bun install/install.ts --index-api-key <apiKey>` (or equivalent in the hosted runtime). If InstaClaw has also fetched an EdgeOS personal access token for the attendee, it passes that on the same line: `bun install/install.ts --index-api-key <apiKey> --edgeos-api-key <eos_live_…> --edgeos-bearer-token <jwt>`.
+1. Runs the AgentVillage installer with the returned `apiKey`: `bun install/install.ts --index-api-key <apiKey>` (or equivalent in the hosted runtime). If InstaClaw has also fetched an EdgeOS personal access token for the attendee, it passes that on the same line: `bun install/install.ts --index-api-key <apiKey> --edgeos-api-key <eos_live_…> --edgeos-bearer-token <jwt>`.
 2. In a follow-up step, captures the attendee's Telegram handle and binds it to their agent transport — this is entirely InstaClaw-owned and happens outside this endpoint.
 
 ### What EdgeOS does after signup (BYOA flow)
@@ -141,13 +141,13 @@ Displays per-host install commands with the attendee's credentials pre-filled. T
 export INDEX_API_KEY=<apiKey>
 export EDGEOS_BEARER_TOKEN=<jwt>
 export EDGEOS_API_KEY=<eos_live_…>
-claude plugin marketplace add Edge-City/edgeclaw-skills
-claude plugin install edgeclaw@edgeclaw-skills
+claude plugin marketplace add Edge-City/agentvillage-skills
+claude plugin install agentvillage@agentvillage-skills
 ```
 
 **OpenClaw:**
 ```bash
-openclaw plugins install edgeclaw --marketplace Edge-City/edgeclaw-skills
+openclaw plugins install agentvillage --marketplace Edge-City/agentvillage-skills
 openclaw config set mcp.servers.index '{"url":"https://protocol.index.network/mcp","transport":"streamable-http","headers":{"x-api-key":"<apiKey>"}}'
 openclaw config set env.vars.EDGEOS_BEARER_TOKEN '<jwt>'
 openclaw config set env.vars.EDGEOS_API_KEY '<eos_live_…>'
@@ -156,9 +156,9 @@ openclaw gateway restart
 
 **Hermes:**
 ```bash
-hermes skills install Edge-City/edgeclaw/skills/edge-esmeralda --force
-hermes skills install Edge-City/edgeclaw/skills/edgeos --force
-hermes skills install Edge-City/edgeclaw/skills/index-network --force
+hermes skills install Edge-City/agentvillage/skills/edge-esmeralda --force
+hermes skills install Edge-City/agentvillage/skills/edgeos --force
+hermes skills install Edge-City/agentvillage/skills/index-network --force
 hermes config set mcp_servers.index.url 'https://protocol.index.network/mcp'
 hermes config set mcp_servers.index.headers.x-api-key '<apiKey>'
 hermes config set EDGEOS_BEARER_TOKEN '<jwt>'
@@ -178,7 +178,7 @@ See `skills/README.md` for the full per-host reference.
   - `EDGEOS_API_KEY` — long-lived `eos_live_…` automation key, minted via the EdgeCity onboarding flow (see the "EdgeOS tokens" section above). Unlocks the calendar/RSVPs/venues recipes in `skills/edgeos/SKILL.md`.
   - `EDGEOS_BEARER_TOKEN` — human session JWT obtained via the same email-OTP flow. Unlocks the directory, own-profile, and OpenAPI-spec recipes.
 
-  Both are optional from EdgeClaw's perspective. Without them the agent still runs; EdgeOS recipes will just ask the user for the missing token on first use per the SKILL.md instructions.
+  Both are optional from AgentVillage's perspective. Without them the agent still runs; EdgeOS recipes will just ask the user for the missing token on first use per the SKILL.md instructions.
 
 ## Install
 
@@ -217,16 +217,16 @@ The installer:
 6. Installs one cron job by default: the daily digest (`0 8 * * *`). The afternoon (`0 14 * * *`) and evening (`0 20 * * *`) ambient passes are opt-in — the user enables them through the schedule sub-dialog at session start or any time later.
 7. Restarts the gateway so all config changes take effect.
 
-Send any message in your chat to bring EdgeClaw online. EdgeClaw has two independent onboarding gates that run at session start:
+Send any message in your chat to bring AgentVillage online. AgentVillage has two independent onboarding gates that run at session start:
 
 - **Index Network onboarding** — gated on the server-side `onboardingComplete` flag returned by `read_user_profiles()`. Owned by `skills/index-network/bootstrap.md`. If `false`, the six-step ritual runs (greet → create profile → capture intent → capture handle → `complete_onboarding()` → populate `USER.md` → welcome).
-- **EdgeClaw onboarding** — gated on the local marker `memory/edgeclaw-state.json` (`edgeclawOnboardingCompletedAt`). Owned by `workspace/AGENTS.md` under "Session startup". Today's only step is the schedule-preferences dialog (which crons you want firing, and at what times). It runs after the active skill bootstraps complete. (AGENTS.md hosts this gate rather than BOOTSTRAP.md because OpenClaw deletes BOOTSTRAP.md after first-run setup, so the file is not reliably injected on subsequent sessions.)
+- **AgentVillage onboarding** — gated on the local marker `memory/agentvillage-state.json` (`agentvillageOnboardingCompletedAt`). Owned by `workspace/AGENTS.md` under "Session startup". Today's only step is the schedule-preferences dialog (which crons you want firing, and at what times). It runs after the active skill bootstraps complete. (AGENTS.md hosts this gate rather than BOOTSTRAP.md because OpenClaw deletes BOOTSTRAP.md after first-run setup, so the file is not reliably injected on subsequent sessions.)
 
-The two states are decoupled. A user can be onboarded to Index Network from another surface (CLI, web) and still need EdgeClaw's schedule dialog. Conversely, an admin resetting `onboardingComplete` server-side re-triggers only the Index ritual, not the schedule prompt. Wiping local state via `install/install.ts --wipe-user` resets the EdgeClaw side without touching Index's flag.
+The two states are decoupled. A user can be onboarded to Index Network from another surface (CLI, web) and still need AgentVillage's schedule dialog. Conversely, an admin resetting `onboardingComplete` server-side re-triggers only the Index ritual, not the schedule prompt. Wiping local state via `install/install.ts --wipe-user` resets the AgentVillage side without touching Index's flag.
 
 ## Reset
 
-To tear down EdgeClaw and start fresh (leaves Telegram token, OpenRouter key, and gateway config untouched):
+To tear down AgentVillage and start fresh (leaves Telegram token, OpenRouter key, and gateway config untouched):
 
 ```bash
 bun install/reset.ts
@@ -238,7 +238,7 @@ Then re-install:
 bun install/install.ts --index-api-key <YOUR_API_KEY>
 ```
 
-Pass `--wipe-user` to also remove `USER.md`, `MEMORY.md`, the `.openclaw/` first-run marker, the entire `memory/` directory (including `edgeclaw-state.json`, `welcome-state.json`, and daily notes), and all agent sessions under `~/.openclaw/agents/main/sessions/` — so the next message spawns a brand new session against a freshly-bootstrapped workspace:
+Pass `--wipe-user` to also remove `USER.md`, `MEMORY.md`, the `.openclaw/` first-run marker, the entire `memory/` directory (including `agentvillage-state.json`, `welcome-state.json`, and daily notes), and all agent sessions under `~/.openclaw/agents/main/sessions/` — so the next message spawns a brand new session against a freshly-bootstrapped workspace:
 
 ```bash
 bun install/reset.ts --wipe-user
@@ -254,21 +254,21 @@ Accepted-opportunity notifications, freshness audits, memory curation, and any o
 
 | File | Purpose |
 | --- | --- |
-| `AGENTS.md` | Canonical session-start instructions plus operating rules. Hosts the dual onboarding gates (skill-side + EdgeClaw-side), the cron-schedule trigger, memory contract, opportunity-quality bar, red lines, and group-chat rules. Always injected by OpenClaw. |
-| `BOOTSTRAP.md` | OpenClaw convention for the first-run file. EdgeClaw ships only a stub pointing to `AGENTS.md` here, because OpenClaw deletes BOOTSTRAP.md after first-run setup — anything stored in it is not durable. |
+| `AGENTS.md` | Canonical session-start instructions plus operating rules. Hosts the dual onboarding gates (skill-side + AgentVillage-side), the cron-schedule trigger, memory contract, opportunity-quality bar, red lines, and group-chat rules. Always injected by OpenClaw. |
+| `BOOTSTRAP.md` | OpenClaw convention for the first-run file. AgentVillage ships only a stub pointing to `AGENTS.md` here, because OpenClaw deletes BOOTSTRAP.md after first-run setup — anything stored in it is not durable. |
 | `SCHEDULE.md` | Cron toggle + reschedule sub-dialog. Used from `BOOTSTRAP.md` during onboarding and any time the user later asks to enable, disable, or move a cron. Operates directly on OpenClaw's cron list (`openclaw cron list/enable/disable/edit`); no separate preferences file. |
 | `COMMUNITY.md` | Edge Esmeralda context — dates, attendee count, programming format, design principles. The agent reads this when composing welcomes and digests. |
 | `SOUL.md` | Voice, banned vocabulary, "never name the plumbing", boundaries, continuity. |
-| `IDENTITY.md` | EdgeClaw identity — role, context, tone. |
+| `IDENTITY.md` | AgentVillage identity — role, context, tone. |
 | `USER.md` | Lived notebook — populated by the active skill's bootstrap ritual from the user's onboarding answers. |
 | `TOOLS.md` | Cross-backend rules: channel formatting (Discord/WhatsApp/Telegram), URL preservation, Local files index. Per-backend tool families live in the relevant skill. |
 | `HEARTBEAT.md` | Generic heartbeat tick rules + the cross-backend `memory-curation` task. Backend-specific tasks live in each active skill's `heartbeat.md`. |
 | `skills/index-network/SKILL.md` | Index Network skill bundle entry point. Registered with OpenClaw on install; gates on `mcp.servers.index`. Body points at the bundle's sibling reference files. |
-| `skills/edgeos/SKILL.md` | EdgeOS-API skill: events + attendee directory + curated wiki/website/newsletter references. Currently scoped to Edge Esmeralda 2026. Loaded by OpenClaw alongside index-network. Vendored from `Edge-City/edgeclaw-skills`. |
+| `skills/edgeos/SKILL.md` | EdgeOS-API skill: events + attendee directory + curated wiki/website/newsletter references. Currently scoped to Edge Esmeralda 2026. Loaded by OpenClaw alongside index-network. Vendored from `Edge-City/agentvillage-skills`. |
 
 ## Configuration guide
 
-EdgeClaw's behaviour is markdown-driven. Almost everything you'd want to change lives in `workspace/` or `skills/<backend>/`. This section maps common customizations to the file that owns them.
+AgentVillage's behaviour is markdown-driven. Almost everything you'd want to change lives in `workspace/` or `skills/<backend>/`. This section maps common customizations to the file that owns them.
 
 **Deploy cycle.** All edits go into this repo. The agent only sees them after `install/install.ts` runs again, since the installer copies `workspace/` and `skills/` into `~/.openclaw/workspace/`. Re-running without `--wipe-user` preserves the attendee's `USER.md`, `MEMORY.md`, and onboarding markers — safe for content/tone edits. Use `--wipe-user` only when you want the next session to re-onboard from scratch.
 
@@ -279,7 +279,7 @@ EdgeClaw's behaviour is markdown-driven. Almost everything you'd want to change 
 | Tighten or loosen overall voice (more analytical / more playful) | `workspace/SOUL.md` | The "voice" rules apply to every message the agent composes. Voice exemplars in skill bundles inherit from here. |
 | Change banned vocabulary (e.g. drop a word, ban a new one) | `workspace/SOUL.md` | Bans propagate to all skill prompts via SOUL.md. |
 | Change the canonical look of welcome / digest / ambient messages | `skills/index-network/exemplars.md` | These exemplars are the bar the agent imitates. Edit the literal sample messages, not abstract rules. |
-| Rename the agent (rebrand for another event) | `workspace/IDENTITY.md` + every `prompts/*.md` and `bootstrap.md` referring to "EdgeClaw" | Grep `EdgeClaw` under `workspace/` and `skills/`. Also update `COMMUNITY.md` and `package.json` `name` if forking. |
+| Rename the agent (rebrand for another event) | `workspace/IDENTITY.md` + every `prompts/*.md` and `bootstrap.md` referring to "AgentVillage" | Grep `AgentVillage` under `workspace/` and `skills/`. Also update `COMMUNITY.md` and `package.json` `name` if forking. |
 | Add or change emoji conventions | `skills/index-network/exemplars.md` and `skills/index-network/prompts/*.md` | Exemplars set the look; prompts set the time-of-day greeting table in `digest.md`. |
 
 ### Content
@@ -290,7 +290,7 @@ EdgeClaw's behaviour is markdown-driven. Almost everything you'd want to change 
 | Change what the daily digest says or how it's structured | `skills/index-network/prompts/digest.md` | Time-aware greeting lookup table lives here. Renumber steps if you add or drop one. |
 | Change what an ambient pass surfaces (quality bar, cap, framing) | `skills/index-network/prompts/ambient.md` | The cap (3 direct + 3 introducer) is in this prompt, not in code. |
 | Change the one-time welcome message | `skills/index-network/prompts/welcome.md` + `skills/index-network/bootstrap.md` | `welcome.md` is the post-onboarding welcome run; `bootstrap.md` is the onboarding ritual that precedes it. |
-| Change the EdgeClaw welcome line for returning users on fresh workspaces | `workspace/AGENTS.md` (first-message gates section) | Two branches: when Index gate triggered → "By the way..." opener; when Index gate skipped → full Edge Esmeralda welcome opener. |
+| Change the AgentVillage welcome line for returning users on fresh workspaces | `workspace/AGENTS.md` (first-message gates section) | Two branches: when Index gate triggered → "By the way..." opener; when Index gate skipped → full Edge Esmeralda welcome opener. |
 | Change the lived-notebook (`USER.md`) template | `skills/index-network/bootstrap.md` | The bootstrap ritual writes `USER.md`. Editing the file in `workspace/` only affects the empty stub copied in by `--wipe-user`. |
 | Change how the agent calls EdgeOS APIs (events, attendees, RSVPs, venues, wiki recipes) | `skills/edgeos/SKILL.md` | This is the hand-edited recipe file. The auto-refreshed reference data under `skills/edgeos/references/` is a different surface — see "Backends & skills" below for the don't-edit-this caveat. |
 
@@ -300,7 +300,7 @@ EdgeClaw's behaviour is markdown-driven. Almost everything you'd want to change 
 |---|---|---|
 | Add, remove, or reorder operating rules (memory contract, opportunity quality bar, red lines, group-chat rules) | `workspace/AGENTS.md` | This file is always injected by OpenClaw on every session — durable, unlike `BOOTSTRAP.md`. |
 | Add a new first-message gate (e.g. another skill needs onboarding) | `workspace/AGENTS.md` "Active skills" section + the new `skills/<name>/bootstrap.md` | Gates loop over the active-skills registry. Add the skill row first, then point its bootstrap at the trigger condition (server flag, local marker, …). |
-| Change the EdgeClaw onboarding gate (currently just the schedule dialog) | `workspace/AGENTS.md` "Session startup" + `workspace/SCHEDULE.md` | The local marker is `memory/edgeclaw-state.json` (`edgeclawOnboardingCompletedAt`). |
+| Change the AgentVillage onboarding gate (currently just the schedule dialog) | `workspace/AGENTS.md` "Session startup" + `workspace/SCHEDULE.md` | The local marker is `memory/agentvillage-state.json` (`agentvillageOnboardingCompletedAt`). |
 | Change heartbeat tick behaviour (what tasks fire, dedup rules) | `workspace/HEARTBEAT.md` for cross-backend rules; `skills/<backend>/heartbeat.md` for backend-specific tasks | The tick cadence itself (default ~30 min) is an OpenClaw-side setting, configured through `openclaw config` — not a file in this repo. |
 | Change how URLs / formatting render per channel (Telegram, WhatsApp, Discord) | `workspace/TOOLS.md` | Cross-backend rule: Telegram is Markdown, not HTML — raw `<…>` tags get escaped. |
 
@@ -320,7 +320,7 @@ EdgeClaw's behaviour is markdown-driven. Almost everything you'd want to change 
 | Extend an existing backend (Index, EdgeOS, Geo when wired) | The matching `install/install_<name>.ts` and `skills/<name>/` bundle | Runtime config (env vars, MCP entries, cron jobs) lives in `install_<name>.ts`; agent-facing instructions live in the skill bundle's `SKILL.md` and siblings. |
 | Wire optional env vars an existing backend needs | `install/install_<name>.ts` + the Prerequisites section of this README | The installer writes `env.vars.<NAME>`; the gateway exposes those to the agent's shell tools on next start. `install_edgeos.ts` is the worked example. |
 | Change which skills the agent loads | `workspace/AGENTS.md` "Active skills" section | Mark a skill as eager (gates fire at session start) or reactive (only consulted when needed). |
-| Update the vendored `edgeos` reference data (events, attendee directory, wiki snapshots) | Don't — it's auto-refreshed from upstream | Upstream CI in `Edge-City/edgeclaw-skills` regenerates `skills/edgeos/references/` every 15 minutes; the change propagates through the nested subtree chain. See the monorepo's `CLAUDE.md` for the sync flow. The recipes in `SKILL.md` are hand-edited — see the "Content" section above. |
+| Update the vendored `edgeos` reference data (events, attendee directory, wiki snapshots) | Don't — it's auto-refreshed from upstream | Upstream CI in `Edge-City/agentvillage-skills` regenerates `skills/edgeos/references/` every 15 minutes; the change propagates through the nested subtree chain. See the monorepo's `CLAUDE.md` for the sync flow. The recipes in `SKILL.md` are hand-edited — see the "Content" section above. |
 
 ## Auth
 
